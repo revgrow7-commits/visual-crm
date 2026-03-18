@@ -12,6 +12,54 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
+
+  <!-- ===== LOGIN OVERLAY ===== -->
+  <div id="loginOverlay">
+    <div class="login-card">
+      <div class="login-logo">
+        <div class="login-logo-icon">🖨️</div>
+        <h1 class="login-title">VisualCRM</h1>
+        <p class="login-subtitle">Comunicação Gráfica &amp; Impressão</p>
+      </div>
+
+      <form id="loginForm" autocomplete="on">
+        <div class="form-group">
+          <label class="form-label">E-mail corporativo</label>
+          <input type="email" id="loginEmail" class="form-control" placeholder="seu@email.com" autocomplete="username" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Senha</label>
+          <input type="password" id="loginPassword" class="form-control" placeholder="••••••••" autocomplete="current-password" required>
+        </div>
+        <div id="loginError" class="login-error"></div>
+        <button type="submit" class="btn btn-primary login-submit-btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+          Entrar
+        </button>
+      </form>
+
+      <div class="login-demo-section">
+        <div class="login-demo-label">Acesso rápido (demo)</div>
+        <div class="login-demo-users">
+          <button class="demo-user-btn" data-email="carlos@visualcrm.com" data-pass="crm2026">
+            <span class="demo-avatar">CM</span>Carlos
+          </button>
+          <button class="demo-user-btn" data-email="ana@visualcrm.com" data-pass="crm2026">
+            <span class="demo-avatar">AL</span>Ana
+          </button>
+          <button class="demo-user-btn" data-email="admin@visualcrm.com" data-pass="admin2026">
+            <span class="demo-avatar">AD</span>Admin
+          </button>
+        </div>
+      </div>
+
+      <div class="login-footer-note">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        Autenticação JWT · Holdprint ERP
+      </div>
+    </div>
+  </div>
+
   <div id="app">
     <!-- Sidebar -->
     <aside class="sidebar" id="sidebar">
@@ -101,6 +149,13 @@
             </select>
           </div>
           <span id="apiStatus" class="api-status mock" title="Verificando API...">◌ Demo</span>
+          <button id="darkModeToggle" class="btn btn-ghost btn-icon" title="Modo escuro">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          </button>
+          <button id="btnLogout" class="btn btn-ghost btn-sm" title="Sair" style="color:var(--gray-500);gap:5px">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            Sair
+          </button>
           <div class="user-info">
             <div style="width:28px;height:28px;background:linear-gradient(135deg,var(--primary),var(--violet));border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff">U</div>
             <span class="user-name">Usuário</span>
@@ -134,6 +189,7 @@
   <!-- Toast Notification -->
   <div class="toast" id="toast"></div>
 
+  <script src="js/auth.js"></script>
   <script src="js/data.js"></script>
   <script src="js/api.js"></script>
   <script src="js/app.js"></script>
