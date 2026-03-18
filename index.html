@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VisualCRM – Comunicação Gráfica</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <div id="app">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">
+          <span class="logo-icon">🖨️</span>
+          <span class="logo-text">VisualCRM <span>Comunicação Gráfica</span></span>
+        </div>
+        <button class="sidebar-toggle" id="sidebarToggle">☰</button>
+      </div>
+      <nav class="sidebar-nav">
+        <div class="nav-section-label">PRINCIPAL</div>
+        <a href="#" class="nav-item active" data-page="dashboard">
+          <span class="nav-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          </span>
+          <span class="nav-label">Dashboard</span>
+        </a>
+        <a href="#" class="nav-item" data-page="pipeline">
+          <span class="nav-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h6v6H3z"/><path d="M15 3h6v6h-6z"/><path d="M15 15h6v6h-6z"/><path d="M3 15h6v6H3z"/><path d="M9 6h6"/><path d="M21 12H9"/><path d="M9 18h6"/></svg>
+          </span>
+          <span class="nav-label">Pipeline</span>
+        </a>
+
+        <div class="nav-section-label">COMERCIAL</div>
+        <a href="#" class="nav-item" data-page="leads">
+          <span class="nav-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          </span>
+          <span class="nav-label">Leads</span>
+        </a>
+        <a href="#" class="nav-item" data-page="clientes">
+          <span class="nav-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          </span>
+          <span class="nav-label">Clientes</span>
+        </a>
+        <a href="#" class="nav-item" data-page="orcamentos">
+          <span class="nav-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          </span>
+          <span class="nav-label">Orçamentos</span>
+        </a>
+        <a href="#" class="nav-item" data-page="propostas">
+          <span class="nav-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </span>
+          <span class="nav-label">Propostas</span>
+        </a>
+
+        <div class="nav-section-label">ANÁLISE</div>
+        <a href="#" class="nav-item" data-page="relatorios">
+          <span class="nav-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+          </span>
+          <span class="nav-label">Relatórios</span>
+        </a>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="sidebar-user">
+          <div class="sidebar-avatar">U</div>
+          <div class="sidebar-user-info">
+            <div class="sidebar-user-name">Usuário</div>
+            <div class="sidebar-user-role">Vendedor</div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <header class="topbar">
+        <div class="topbar-left">
+          <h1 class="page-title" id="pageTitle">Dashboard</h1>
+        </div>
+        <div class="topbar-right">
+          <button class="btn btn-primary" id="btnAddNew" style="display:none">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Novo
+          </button>
+          <div class="region-selector">
+            <label style="font-size:10px;font-weight:700;color:var(--gray-400);letter-spacing:.07em">UNIDADE</label>
+            <select id="regionSelect" class="form-control" style="width:72px;padding:5px 8px;font-size:12px;font-weight:600">
+              <option value="sp">SP</option>
+              <option value="poa">POA</option>
+            </select>
+          </div>
+          <span id="apiStatus" class="api-status mock" title="Verificando API...">◌ Demo</span>
+          <div class="user-info">
+            <div style="width:28px;height:28px;background:linear-gradient(135deg,var(--primary),var(--violet));border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff">U</div>
+            <span class="user-name">Usuário</span>
+          </div>
+        </div>
+      </header>
+
+      <div class="content-area" id="contentArea">
+        <!-- Conteúdo dinâmico aqui -->
+      </div>
+    </main>
+  </div>
+
+  <!-- Modal Universal -->
+  <div class="modal-overlay" id="modalOverlay">
+    <div class="modal" id="modal">
+      <div class="modal-header">
+        <h2 class="modal-title" id="modalTitle">Título</h2>
+        <button class="modal-close" id="modalClose">×</button>
+      </div>
+      <div class="modal-body" id="modalBody">
+        <!-- Conteúdo do modal -->
+      </div>
+      <div class="modal-footer" id="modalFooter">
+        <button class="btn btn-secondary" id="modalCancel">Cancelar</button>
+        <button class="btn btn-primary" id="modalSave">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div class="toast" id="toast"></div>
+
+  <script src="js/data.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/relatorios.js"></script>
+</body>
+</html>
