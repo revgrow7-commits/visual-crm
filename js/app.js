@@ -34,6 +34,10 @@ function closeModal() {
 function getVal(id) { return document.getElementById(id)?.value || ''; }
 function setVal(id, v) { const el = document.getElementById(id); if (el) el.value = v || ''; }
 
+// ===== HP SYNC STATE =====
+let _hpClientes   = []; // Holdprint customers cached this session
+let _hpOrcamentos = []; // Holdprint budgets cached this session
+
 // ===== NAVIGATION =====
 let currentPage = 'dashboard';
 
@@ -313,11 +317,14 @@ function novoOrcamentoParaLead(leadId) {
 }
 
 // ===== CLIENTES =====
-function renderClientes(area) {
+async function renderClientes(area) {
   const clientes = DB.getClientes();
   area.innerHTML = `
     <div class="filter-bar">
       <input class="form-control search-input" id="searchCliente" placeholder="Buscar cliente..." oninput="filterClientes()">
+      <div id="clienteErpBanner" style="font-size:12px;color:var(--gray-400);display:flex;align-items:center;gap:6px;white-space:nowrap">
+        <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--primary);opacity:.6">⟳</span> Sincronizando ERP...
+      </div>
     </div>
     <div class="card">
       <div class="card-body" style="padding:0">
@@ -326,12 +333,26 @@ function renderClientes(area) {
         </div>
       </div>
     </div>`;
+  try {
+    const hpList = await HOLDPRINT.getCustomers(1);
+    if (!document.getElementById('clientesTable')) return; // page changed
+    const existingEmails = new Set(DB.getClientes().map(c => (c.email||'').toLowerCase()).filter(Boolean));
+    _hpClientes = hpList
+      .filter(c => !existingEmails.has((c.email||'').toLowerCase()))
+      .map(c => ({...c, _source:'holdprint'}));
+    const banner = document.getElementById('clienteErpBanner');
+    if (banner) banner.innerHTML = `<span style="color:var(--success)">✓ ${hpList.length} clientes do Holdprint ERP${_hpClientes.length > 0 ? ` · <strong>${_hpClientes.length} novos</strong>` : ''}</span>`;
+    document.getElementById('clientesTable').innerHTML = renderClientesTable([...DB.getClientes(), ..._hpClientes]);
+  } catch {
+    const banner = document.getElementById('clienteErpBanner');
+    if (banner) banner.remove();
+  }
 }
 
 function renderClientesTable(clientes) {
   if (clientes.length === 0) return `<div class="empty-state"><div class="empty-state-icon">👥</div><div class="empty-state-text">Nenhum cliente cadastrado</div></div>`;
   return `<table>
-    <thead><tr><th>Nome/Empresa</th><th>CNPJ/CPF</th><th>Email</th><th>Telefone</th><th>Cidade/UF</th><th>Segmento</th><th>Ações</th></tr></thead>
+    <thead><tr><th>Nome/Empresa</th><th>CNPJ/CPF</th><th>Email</th><th>Telefone</th><th>Cidade/UF</th><th>Segmento</th><th>Fonte</th><th>Ações</th></tr></thead>
     <tbody>${clientes.map(c => `
       <tr>
         <td><strong>${c.nome}</strong></td>
@@ -339,12 +360,17 @@ function renderClientesTable(clientes) {
         <td>${c.email||'-'}</td>
         <td>${c.telefone||'-'}</td>
         <td>${c.cidade||'-'}${c.estado?'/'+c.estado:''}</td>
-        <td>${c.segmento||'-'}</td>
+        <td>${c.segmento||c.tipo||'-'}</td>
+        <td>${c._source==='holdprint'
+          ? '<span class="badge" style="background:#dbeafe;color:#1d4ed8;font-size:10px;padding:2px 6px;border-radius:4px">ERP</span>'
+          : '<span style="font-size:10px;color:var(--gray-400)">CRM</span>'}</td>
         <td>
           <div class="table-actions">
-            <button class="btn btn-sm btn-secondary" onclick="openFormCliente('${c.id}')">✏️</button>
-            <button class="btn btn-sm btn-secondary" onclick="novoOrcParaCliente('${c.id}')">📋</button>
-            <button class="btn btn-sm btn-danger" onclick="deleteCliente('${c.id}')">🗑️</button>
+            ${c._source==='holdprint'
+              ? `<span style="font-size:11px;color:var(--gray-400)">Holdprint</span>`
+              : `<button class="btn btn-sm btn-secondary" onclick="openFormCliente('${c.id}')">✏️</button>
+                 <button class="btn btn-sm btn-secondary" onclick="novoOrcParaCliente('${c.id}')">📋</button>
+                 <button class="btn btn-sm btn-danger" onclick="deleteCliente('${c.id}')">🗑️</button>`}
           </div>
         </td>
       </tr>`).join('')}
@@ -354,7 +380,7 @@ function renderClientesTable(clientes) {
 
 function filterClientes() {
   const q = getVal('searchCliente').toLowerCase();
-  let list = DB.getClientes();
+  let list = [...DB.getClientes(), ..._hpClientes];
   if (q) list = list.filter(c => c.nome.toLowerCase().includes(q) || (c.email||'').toLowerCase().includes(q) || (c.cnpj||'').includes(q));
   document.getElementById('clientesTable').innerHTML = renderClientesTable(list);
 }
@@ -407,7 +433,7 @@ function novoOrcParaCliente(clienteId) {
 }
 
 // ===== ORÇAMENTOS =====
-function renderOrcamentos(area) {
+async function renderOrcamentos(area) {
   const orcs = DB.getOrcamentos().sort((a,b) => (b.criadoEm||'').localeCompare(a.criadoEm||''));
   area.innerHTML = `
     <div class="filter-bar">
@@ -416,36 +442,60 @@ function renderOrcamentos(area) {
         <option value="">Todos os status</option>
         ${Object.entries(statusOrcLabel).map(([v,l]) => `<option value="${v}">${l}</option>`).join('')}
       </select>
+      <div id="orcErpBanner" style="font-size:12px;color:var(--gray-400);white-space:nowrap">⟳ Sincronizando ERP...</div>
     </div>
     <div class="card">
       <div class="card-body" style="padding:0">
         <div class="table-wrapper" id="orcsTable">${renderOrcsTable(orcs)}</div>
       </div>
     </div>`;
+  try {
+    const hpBudgets = await HOLDPRINT.getBudgets(1);
+    if (!document.getElementById('orcsTable')) return;
+    _hpOrcamentos = hpBudgets.map(b => ({...b, _source:'holdprint'}));
+    const banner = document.getElementById('orcErpBanner');
+    if (banner) banner.innerHTML = `<span style="color:var(--success)">✓ ${hpBudgets.length} orçamentos do Holdprint ERP</span>`;
+    document.getElementById('orcsTable').innerHTML = renderOrcsTable([...orcs, ..._hpOrcamentos]);
+  } catch {
+    const banner = document.getElementById('orcErpBanner');
+    if (banner) banner.remove();
+  }
 }
 
 function renderOrcsTable(orcs) {
   if (orcs.length === 0) return `<div class="empty-state"><div class="empty-state-icon">📋</div><div class="empty-state-text">Nenhum orçamento encontrado</div></div>`;
   return `<table>
-    <thead><tr><th>Nº</th><th>Cliente/Lead</th><th>Serviços</th><th>Total</th><th>Validade</th><th>Status</th><th>Data</th><th>Ações</th></tr></thead>
-    <tbody>${orcs.map(o => `
+    <thead><tr><th>Nº</th><th>Cliente/Lead</th><th>Serviços/Título</th><th>Total</th><th>Validade</th><th>Status</th><th>Fonte</th><th>Data</th><th>Ações</th></tr></thead>
+    <tbody>${orcs.map(o => {
+      const num    = o.numero || o.id || '-';
+      const client = o.clienteNome || o.company || '-';
+      const desc   = o._source==='holdprint' ? (o.title||'') : ((o.itens||[]).map(i=>i.servico).join(', ')||'-');
+      const total  = o.total ?? o.value ?? 0;
+      const status = o.status || 'pendente';
+      const date   = o.criadoEm || o.created_at || '';
+      return `
       <tr>
-        <td><strong style="cursor:pointer;color:var(--primary)" onclick="showOrcamentoDetail('${o.id}')">${o.numero}</strong></td>
-        <td>${o.clienteNome||'-'}</td>
-        <td>${(o.itens||[]).map(i=>i.servico).join(', ')||'-'}</td>
-        <td><strong>${fmt.money(o.total)}</strong></td>
-        <td>${fmt.date(o.validade)}</td>
-        <td><span class="badge badge-${o.status}">${statusOrcLabel[o.status]||o.status}</span></td>
-        <td>${fmt.date(o.criadoEm)}</td>
+        <td><strong style="cursor:pointer;color:var(--primary)" onclick="${o._source==='holdprint' ? '' : `showOrcamentoDetail('${o.id}')`}">${num}</strong></td>
+        <td>${client}</td>
+        <td>${desc}</td>
+        <td><strong>${fmt.money(total)}</strong></td>
+        <td>${fmt.date(o.validade||'-')}</td>
+        <td><span class="badge badge-${status}">${statusOrcLabel[status]||status}</span></td>
+        <td>${o._source==='holdprint'
+          ? '<span class="badge" style="background:#dbeafe;color:#1d4ed8;font-size:10px;padding:2px 6px;border-radius:4px">ERP</span>'
+          : '<span style="font-size:10px;color:var(--gray-400)">CRM</span>'}</td>
+        <td>${fmt.date(date)}</td>
         <td>
           <div class="table-actions">
-            <button class="btn btn-sm btn-secondary" onclick="showOrcamentoDetail('${o.id}')">👁️</button>
-            <button class="btn btn-sm btn-secondary" onclick="openFormOrcamento('${o.id}')">✏️</button>
-            <button class="btn btn-sm btn-success" onclick="gerarProposta('${o.id}')">📤</button>
-            <button class="btn btn-sm btn-danger" onclick="deleteOrcamento('${o.id}')">🗑️</button>
+            ${o._source==='holdprint'
+              ? `<span style="font-size:11px;color:var(--gray-400)">Holdprint</span>`
+              : `<button class="btn btn-sm btn-secondary" onclick="showOrcamentoDetail('${o.id}')">👁️</button>
+                 <button class="btn btn-sm btn-secondary" onclick="openFormOrcamento('${o.id}')">✏️</button>
+                 <button class="btn btn-sm btn-success" onclick="gerarProposta('${o.id}')">📤</button>
+                 <button class="btn btn-sm btn-danger" onclick="deleteOrcamento('${o.id}')">🗑️</button>`}
           </div>
         </td>
-      </tr>`).join('')}
+      </tr>`;}).join('')}
     </tbody>
   </table>`;
 }
@@ -453,16 +503,14 @@ function renderOrcsTable(orcs) {
 function filterOrcamentos() {
   const q = getVal('searchOrc').toLowerCase();
   const st = getVal('filterOrcStatus');
-  let list = DB.getOrcamentos();
-  if (q) list = list.filter(o => (o.numero||'').toLowerCase().includes(q) || (o.clienteNome||'').toLowerCase().includes(q));
+  let list = [...DB.getOrcamentos().sort((a,b) => (b.criadoEm||'').localeCompare(a.criadoEm||'')), ..._hpOrcamentos];
+  if (q) list = list.filter(o => (o.numero||o.id||'').toLowerCase().includes(q) || (o.clienteNome||o.company||'').toLowerCase().includes(q));
   if (st) list = list.filter(o => o.status === st);
   document.getElementById('orcsTable').innerHTML = renderOrcsTable(list);
 }
 
 function openFormOrcamento(id, leadId, clienteId) {
   const o = id ? DB.getOrcamentoById(id) : null;
-  const leads = DB.getLeads();
-  const clientes = DB.getClientes();
   const lead = leadId ? DB.getLeadById(leadId) : null;
   const cliente = clienteId ? DB.getClienteById(clienteId) : null;
   const defaultNome = lead?.nome || cliente?.nome || o?.clienteNome || '';
@@ -782,38 +830,64 @@ function deleteProposta(id) {
   renderPage(currentPage);
 }
 
+// HP budgetState → CRM pipeline column key
+const _hpStageMap = { prospecção:'novo', qualificação:'qualificado', proposta:'proposta', negociação:'negociacao', fechamento:'negociacao', ganho:'fechado', perdido:'perdido' };
+
 // ===== PIPELINE =====
-function renderPipeline(area) {
+async function renderPipeline(area) {
   const leads = DB.getLeads();
+  _renderPipelineBoard(area, leads, []);
+  try {
+    const hpBudgets = await HOLDPRINT.getBudgets(1);
+    if (!document.querySelector('.pipeline-board')) return;
+    _renderPipelineBoard(area, leads, hpBudgets);
+  } catch { /* keep board as-is */ }
+}
+
+function _renderPipelineBoard(area, leads, hpBudgets) {
   const cols = Object.entries(statusLeadLabel);
-  const totalPipeline = leads.reduce((s,l) => s + (l.valor||0), 0);
+  const totalLeads = leads.reduce((s,l) => s + (l.valor||0), 0);
+  const totalHP    = hpBudgets.reduce((s,b) => s + (b.value||0), 0);
   area.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:10px">
       <div style="display:flex;gap:20px;flex-wrap:wrap">
-        <div style="font-size:13px;color:var(--gray-500)">Total no funil: <strong style="color:var(--gray-900);font-size:15px">${fmt.money(totalPipeline)}</strong></div>
+        <div style="font-size:13px;color:var(--gray-500)">Total no funil: <strong style="color:var(--gray-900);font-size:15px">${fmt.money(totalLeads + totalHP)}</strong></div>
         <div style="font-size:13px;color:var(--gray-500)">Leads ativos: <strong style="color:var(--primary)">${leads.filter(l=>!['fechado','perdido'].includes(l.status)).length}</strong></div>
+        ${hpBudgets.length > 0 ? `<div style="font-size:13px;color:var(--gray-500)">ERP: <strong style="color:#1d4ed8">${hpBudgets.length} orçamentos</strong></div>` : ''}
       </div>
     </div>
     <div class="pipeline-board">
       ${cols.map(([status, label]) => {
-        const cards = leads.filter(l => l.status === status);
-        const total = cards.reduce((s,l) => s + (l.valor||0), 0);
+        const leadCards = leads.filter(l => l.status === status);
+        const hpCards   = hpBudgets.filter(b => (_hpStageMap[b.stage]||b.stage) === status);
+        const total = leadCards.reduce((s,l) => s + (l.valor||0), 0) + hpCards.reduce((s,b) => s + (b.value||0), 0);
+        const count = leadCards.length + hpCards.length;
         const colIcons = { novo:'🔵', qualificado:'🟦', proposta:'🟡', negociacao:'🟣', fechado:'🟢', perdido:'🔴' };
         return `
           <div class="pipeline-column col-${status}">
             <div class="pipeline-col-header">
               <span style="display:flex;align-items:center;gap:6px">${colIcons[status]||''} ${label}</span>
-              <span style="font-size:11px;font-weight:700;opacity:.8">${cards.length}</span>
+              <span style="font-size:11px;font-weight:700;opacity:.8">${count}</span>
             </div>
             <div class="pipeline-cards">
-              ${cards.map(l => `
+              ${leadCards.map(l => `
                 <div class="pipeline-card" onclick="showLeadDetail('${l.id}')">
                   <div class="pipeline-card-name">${l.nome}</div>
                   <div class="pipeline-card-info">${l.empresa||'–'}${l.interesse ? ' · ' + l.interesse : ''}</div>
                   ${l.valor ? `<div class="pipeline-card-value">${fmt.money(l.valor)}</div>` : ''}
                   <div class="pipeline-card-date">${fmt.date(l.criadoEm)}</div>
                 </div>`).join('')}
-              ${cards.length === 0 ? `
+              ${hpCards.map(b => `
+                <div class="pipeline-card" style="border-left:3px solid #3b82f6">
+                  <div style="display:flex;justify-content:space-between;align-items:flex-start">
+                    <div class="pipeline-card-name">${b.title||b.id}</div>
+                    <span style="font-size:9px;background:#dbeafe;color:#1d4ed8;padding:1px 5px;border-radius:3px;white-space:nowrap">ERP</span>
+                  </div>
+                  <div class="pipeline-card-info">${b.company||'–'}</div>
+                  ${b.value ? `<div class="pipeline-card-value">${fmt.money(b.value)}</div>` : ''}
+                  <div class="pipeline-card-date">${fmt.date(b.created_at||'')}</div>
+                </div>`).join('')}
+              ${count === 0 ? `
                 <div style="text-align:center;padding:28px 12px;color:var(--gray-400);font-size:12px">
                   <div style="font-size:24px;margin-bottom:8px;opacity:.4">○</div>
                   Sem leads
