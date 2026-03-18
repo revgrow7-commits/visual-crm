@@ -1,10 +1,10 @@
 // ===== HOLDPRINT API CLIENT =====
 const HOLDPRINT = {
-  BASE_URL: localStorage.getItem('hp_url') || 'https://api.holdprint.net',
+  BASE_URL: 'https://api.holdworks.ai',
   region: localStorage.getItem('hp_region') || 'sp',
   _cache: {},
   CACHE_TTL: 900000, // 15 min
-  useMock: false,
+  _realApiOk: null, // null=untested, true=working, false=offline
 
   TOKENS: {
     sp: '4e20f4c2-6f84-49e7-9ab9-e27d6930a13a',
@@ -17,6 +17,7 @@ const HOLDPRINT = {
     this.region = r;
     localStorage.setItem('hp_region', r);
     this._cache = {};
+    this._realApiOk = null;
     document.getElementById('regionLabel') && (document.getElementById('regionLabel').textContent = r.toUpperCase());
   },
 
@@ -27,34 +28,33 @@ const HOLDPRINT = {
   },
   _sc(path, d) { this._cache[this._ck(path)] = { d, t: Date.now() }; },
 
+  // Real Holdprint API call — only for /api-key/* endpoints
+  async _fetchReal(path) {
+    const cached = this._gc(path);
+    if (cached) return cached;
+    const resp = await fetch(this.BASE_URL + path, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': this.token() }
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    this._sc(path, data);
+    return data;
+  },
+
+  // Virtual CRM paths always use mock (they don't exist in real API)
   async request(method, path, body) {
     const cached = method === 'GET' ? this._gc(path) : null;
     if (cached) return cached;
-    if (this.useMock) return this._mock(path);
-    try {
-      const resp = await fetch(this.BASE_URL + path, {
-        method,
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.token() },
-        body: body ? JSON.stringify(body) : undefined
-      });
-      if (!resp.ok) throw new Error('HTTP ' + resp.status);
-      const data = await resp.json();
-      if (method === 'GET') this._sc(path, data);
-      return data;
-    } catch (e) {
-      console.warn('[Holdprint] API indisponível, usando dados de exemplo:', e.message);
-      this.useMock = true;
-      this._updateApiStatus(false);
-      return this._mock(path);
-    }
+    return this._mock(path);
   },
 
   _updateApiStatus(ok) {
     const el = document.getElementById('apiStatus');
     if (!el) return;
     el.className = 'api-status ' + (ok ? 'connected' : 'mock');
-    el.title = ok ? 'Holdprint API conectada' : 'Modo demo (API offline)';
-    el.textContent = ok ? '● API' : '◌ Demo';
+    el.title = ok ? 'Holdprint ERP conectado' : 'Modo demo (API offline)';
+    el.textContent = ok ? '● Holdprint' : '◌ Demo';
   },
 
   get(p) { return this.request('GET', p); },
@@ -62,7 +62,7 @@ const HOLDPRINT = {
   put(p, b) { return this.request('PUT', p, b); },
   patch(p, b) { return this.request('PATCH', p, b); },
 
-  // ===== ENDPOINTS =====
+  // ===== VIRTUAL CRM ENDPOINTS (mock-only, for kanban/pipeline/reports) =====
   getOpportunities(params = {}) { return this.get('/api/opportunities' + _qs(params)); },
   getOpportunitiesByStage() { return this.get('/api/opportunities/by-stage'); },
   getProposals(params = {}) { return this.get('/api/proposals' + _qs(params)); },
@@ -71,13 +71,145 @@ const HOLDPRINT = {
   getProducts() { return this.get('/api/products'); },
   getActivities(params = {}) { return this.get('/api/activities' + _qs(params)); },
   getTasks(params = {}) { return this.get('/api/tasks' + _qs(params)); },
-  patchOpportunityStage(id, stage) { return this.patch(`/api/opportunities/${id}/stage`, { stage }); },
-  patchProposalStatus(id, status) { return this.patch(`/api/proposals/${id}/status`, { status }); },
+  patchOpportunityStage(id, stage) { return this._mock('/api/opportunities/by-stage'); },
+  patchProposalStatus(id, status) { return this._mock('/api/proposals'); },
   getReportPipeline() { return this.get('/api/reports/pipeline-summary'); },
-  getReportForecast(period) { return this.get('/api/reports/sales-forecast?period=' + (period || '')); },
-  getReportConversion(from, to) { return this.get(`/api/reports/conversion-rate?from_date=${from}&to_date=${to}`); },
-  getReportRevenue(from, to) { return this.get(`/api/reports/revenue-by-period?period=monthly&from=${from}&to=${to}`); },
-  getReportSellers(month) { return this.get('/api/reports/seller-performance?month=' + (month || '')); },
+  getReportForecast(period) { return this.get('/api/reports/sales-forecast'); },
+  getReportConversion(from, to) { return this.get('/api/reports/conversion-rate'); },
+  getReportRevenue(from, to) { return this.get('/api/reports/revenue-by-period'); },
+  getReportSellers(month) { return this.get('/api/reports/seller-performance'); },
+
+  // ===== REAL HOLDPRINT ENDPOINTS =====
+  async getCustomers(page = 1) {
+    try {
+      const res = await this._fetchReal(`/api-key/customers/data?page=${page}`);
+      if (this._realApiOk !== true) { this._realApiOk = true; this._updateApiStatus(true); }
+      return (res.data || []).map(c => this._normalizeCustomer(c));
+    } catch (e) {
+      console.warn('[Holdprint] customers offline:', e.message);
+      if (this._realApiOk !== false) { this._realApiOk = false; this._updateApiStatus(false); }
+      return this._M.contacts;
+    }
+  },
+
+  async getSuppliers(page = 1) {
+    try {
+      const res = await this._fetchReal(`/api-key/suppliers/data?page=${page}`);
+      if (this._realApiOk !== true) { this._realApiOk = true; this._updateApiStatus(true); }
+      return (res.data || []).map(c => this._normalizeCustomer(c));
+    } catch (e) {
+      console.warn('[Holdprint] suppliers offline:', e.message);
+      return [];
+    }
+  },
+
+  async getBudgets(page = 1) {
+    try {
+      const res = await this._fetchReal(`/api-key/budgets/data?page=${page}`);
+      if (this._realApiOk !== true) { this._realApiOk = true; this._updateApiStatus(true); }
+      return (res.data || []).map(b => this._normalizeBudget(b));
+    } catch (e) {
+      console.warn('[Holdprint] budgets offline:', e.message);
+      if (this._realApiOk !== false) { this._realApiOk = false; this._updateApiStatus(false); }
+      return this._M.opps;
+    }
+  },
+
+  async getJobs(page = 1) {
+    try {
+      const res = await this._fetchReal(`/api-key/jobs/data?page=${page}`);
+      if (this._realApiOk !== true) { this._realApiOk = true; this._updateApiStatus(true); }
+      return (res.data || []).map(j => this._normalizeJob(j));
+    } catch (e) {
+      console.warn('[Holdprint] jobs offline:', e.message);
+      return [];
+    }
+  },
+
+  async getExpenses(page = 1) {
+    try {
+      const res = await this._fetchReal(`/api-key/expenses/data?page=${page}`);
+      if (this._realApiOk !== true) { this._realApiOk = true; this._updateApiStatus(true); }
+      return res.data || [];
+    } catch (e) {
+      console.warn('[Holdprint] expenses offline:', e.message);
+      return [];
+    }
+  },
+
+  async getIncomes(page = 1) {
+    try {
+      const res = await this._fetchReal(`/api-key/incomes/data?page=${page}`);
+      if (this._realApiOk !== true) { this._realApiOk = true; this._updateApiStatus(true); }
+      return res.data || [];
+    } catch (e) {
+      console.warn('[Holdprint] incomes offline:', e.message);
+      return [];
+    }
+  },
+
+  // ===== NORMALIZATION — Real API → CRM format =====
+  _normalizeCustomer(c) {
+    return {
+      id: c.id,
+      nome: c.fullName || c.name || '',
+      email: c.mainEmail || '',
+      telefone: c.mainPhoneNumber || '',
+      tipo: c.entityType || 'PJ',
+      ativo: c.active !== false,
+      criado: c.creationTime,
+      enderecos: c.addresses || [],
+      contatos: c.contacts || []
+    };
+  },
+
+  _BUDGET_STATE: { 0:'rascunho', 1:'pendente', 2:'enviado', 3:'ganho', 4:'perdido' },
+
+  _normalizeBudget(b) {
+    const stateStr = this._BUDGET_STATE[b.budgetState] ?? 'pendente';
+    const stageMap = { rascunho:'prospecção', pendente:'qualificação', enviado:'proposta', ganho:'ganho', perdido:'perdido' };
+    const totalValue = (b.proposes || []).reduce((s, p) => s + (p.totalPrice || 0), 0);
+    return {
+      id: b.code,
+      title: b.title || `Orçamento ${b.code}`,
+      company: b.customerName || '',
+      value: totalValue,
+      stage: stageMap[stateStr] || 'qualificação',
+      status: stateStr,
+      budgetState: b.budgetState,
+      created_at: b.creationDate,
+      won_date: b.wonDate,
+      proposes: b.proposes || []
+    };
+  },
+
+  _normalizeJob(j) {
+    return {
+      id: j.id,
+      code: j.code,
+      title: j.title || `Job ${j.code}`,
+      company: j.customerName || '',
+      responsible: j.responsibleName || '',
+      value: j.totalPrice || 0,
+      status: j.isFinalized ? 'finalizado' : 'em_producao',
+      chargeStatus: j.jobChargeStatus,
+      created_at: j.creationTime,
+      costs: j.costs || 0,
+      production: j.production || {}
+    };
+  },
+
+  // Probe the real API on load to set status indicator
+  async probe() {
+    try {
+      await this._fetchReal('/api-key/customers/data?page=1');
+      this._realApiOk = true;
+      this._updateApiStatus(true);
+    } catch {
+      this._realApiOk = false;
+      this._updateApiStatus(false);
+    }
+  },
 
   // ===== MOCK DATA =====
   _mock(path) {

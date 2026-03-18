@@ -870,4 +870,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('modalCancel').textContent = 'Cancelar';
 
   navigate('dashboard');
+
+  // Probe real Holdprint API to update status indicator
+  if (Auth.isAuthenticated()) HOLDPRINT.probe();
 });
