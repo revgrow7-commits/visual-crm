@@ -7,7 +7,10 @@ const REL_TABS = [
   { id:'forecast',    icon:'📡', label:'Forecast' },
   { id:'risco',       icon:'⚠️', label:'Deals em Risco' },
   { id:'produtos',    icon:'📦', label:'Produtos' },
-  { id:'agendamentos',icon:'⏰', label:'Agendamentos' }
+  { id:'agendamentos',icon:'⏰', label:'Agendamentos' },
+  { id:'velocidade',  icon:'⚡', label:'Velocidade de Vendas', badge:'NOVO' },
+  { id:'winloss',     icon:'🔍', label:'Win/Loss Intelligence', badge:'NOVO' },
+  { id:'saude',       icon:'💊', label:'Saúde do Pipeline', badge:'NOVO' }
 ];
 
 const CHART_COLORS = ['#2563eb','#16a34a','#d97706','#dc2626','#0891b2','#7c3aed','#db2777','#ea580c'];
@@ -119,7 +122,7 @@ function skeletonLoading(rows = 3) {
 window.RelatoriosModule = {
   render(area) {
     const tabsHtml = REL_TABS.map(t =>
-      `<button class="rel-tab-btn${t.id===_relTab?' active':''}" data-tab="${t.id}">${t.icon} ${t.label}</button>`
+      `<button class="rel-tab-btn${t.id===_relTab?' active':''}" data-tab="${t.id}">${t.icon} ${t.label}${t.badge?` <span style="font-size:9px;font-weight:800;background:linear-gradient(135deg,#4f46e5,#8b5cf6);color:#fff;padding:1px 5px;border-radius:8px;letter-spacing:.04em;vertical-align:middle">${t.badge}</span>`:''}</button>`
     ).join('');
 
     area.innerHTML = `
@@ -149,7 +152,8 @@ window.RelatoriosModule = {
       vendas: renderVendas, pipeline: renderPipelineTab,
       conversao: renderConversao, performance: renderPerformance,
       forecast: renderForecast, risco: renderRisco,
-      produtos: renderProdutos, agendamentos: renderAgendamentos
+      produtos: renderProdutos, agendamentos: renderAgendamentos,
+      velocidade: renderVelocidade, winloss: renderWinLoss, saude: renderSaude
     };
     if (renders[tab]) renders[tab]();
   }
@@ -1295,7 +1299,6 @@ function deleteAgendamento(idx) {
 
 function executarAgendamento(nome) {
   showToast(`Relatório "${nome}" gerado e enviado!`, 'success');
-  // Add to history mock
   const now = new Date();
   _SEND_HISTORY.unshift({
     data: now.toLocaleString('pt-BR'),
@@ -1303,5 +1306,499 @@ function executarAgendamento(nome) {
     dest: 'equipe@empresa.com',
     status: 'Enviado',
     arquivo: nome.toLowerCase().replace(/\s+/g,'_') + '_' + now.toISOString().slice(0,10).replace(/-/g,'') + '.pdf'
+  });
+}
+
+// ===== 9. VELOCIDADE DE VENDAS (SALES VELOCITY) =====
+async function renderVelocidade() {
+  const el = document.getElementById('relContent');
+  el.innerHTML = skeletonLoading(4);
+
+  const sellers  = HOLDPRINT._M.sellers;
+  const rev      = HOLDPRINT._M.revenue.monthly;
+  const avgCycle = sellers.reduce((t,s) => t + s.avg_days, 0) / sellers.length;
+  const avgWR    = sellers.reduce((t,s) => t + s.conversion, 0) / sellers.length;
+  const avgTkt   = sellers.reduce((t,s) => t + s.avg_ticket, 0) / sellers.length;
+  const totDeals = sellers.reduce((t,s) => t + s.open_deals, 0);
+  const companySV= Math.round((totDeals * (avgWR/100) * avgTkt) / Math.max(1, avgCycle));
+
+  const svData = sellers.map(s => ({
+    ...s,
+    sv:        Math.round((s.open_deals * (s.conversion/100) * s.avg_ticket) / Math.max(1, s.avg_days)),
+    svMonthly: Math.round((s.open_deals * (s.conversion/100) * s.avg_ticket) / Math.max(1, s.avg_days) * 30)
+  })).sort((a,b) => b.sv - a.sv);
+
+  const fastest = svData[0];
+  const svTrend = rev.map(m => ({ month: m.month, sv: Math.round(m.revenue / Math.max(1, avgCycle)) }));
+
+  el.innerHTML = `
+    <div class="kpi-grid">
+      <div class="kpi-card" style="border-top:3px solid var(--primary)">
+        <div class="kpi-icon">⚡</div>
+        <div class="kpi-label">Velocidade de Vendas</div>
+        <div class="kpi-value">${fmt.money(companySV)}<span style="font-size:13px;font-weight:500;color:var(--gray-500)">/dia</span></div>
+        <div class="kpi-sub">Receita estimada por dia útil</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-icon">🏎️</div>
+        <div class="kpi-label">Vendedor Mais Veloz</div>
+        <div class="kpi-value" style="font-size:18px">${fastest.name}</div>
+        <div class="kpi-sub">${fmt.money(fastest.sv)}/dia · Ciclo ${fastest.avg_days}d</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-icon">⏱️</div>
+        <div class="kpi-label">Ciclo Médio</div>
+        <div class="kpi-value">${Math.round(avgCycle)} dias</div>
+        <div class="kpi-sub">−1 dia = +${fmt.money(Math.round(companySV * 0.04))} velocidade</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-icon">🎯</div>
+        <div class="kpi-label">Win Rate Médio</div>
+        <div class="kpi-value">${Math.round(avgWR)}%</div>
+        <div class="kpi-sub">+5% = +${fmt.money(Math.round(companySV * 0.07))} velocidade</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header"><span class="card-title">🧮 Decomposição da Fórmula</span></div>
+      <div class="card-body">
+        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;align-items:center;text-align:center">
+          <div style="padding:16px;background:var(--primary-light);border-radius:10px">
+            <div style="font-size:10px;color:var(--gray-500);text-transform:uppercase;margin-bottom:4px">Deals Abertos</div>
+            <div style="font-size:30px;font-weight:800;color:var(--primary)">${totDeals}</div>
+          </div>
+          <div style="font-size:22px;color:var(--gray-400);font-weight:300">×</div>
+          <div style="padding:16px;background:var(--success-light);border-radius:10px">
+            <div style="font-size:10px;color:var(--gray-500);text-transform:uppercase;margin-bottom:4px">Win Rate</div>
+            <div style="font-size:30px;font-weight:800;color:var(--success)">${Math.round(avgWR)}%</div>
+          </div>
+          <div style="font-size:22px;color:var(--gray-400);font-weight:300">×</div>
+          <div style="padding:16px;background:var(--warning-light);border-radius:10px">
+            <div style="font-size:10px;color:var(--gray-500);text-transform:uppercase;margin-bottom:4px">Ticket Médio</div>
+            <div style="font-size:22px;font-weight:800;color:var(--warning)">${fmt.money(Math.round(avgTkt))}</div>
+          </div>
+        </div>
+        <div style="text-align:center;margin:10px 0;font-size:13px;color:var(--gray-500)">÷ ciclo de <strong>${Math.round(avgCycle)}</strong> dias</div>
+        <div style="text-align:center;padding:16px;background:linear-gradient(135deg,var(--primary-light),var(--violet-light));border-radius:10px">
+          <div style="font-size:10px;color:var(--gray-600);text-transform:uppercase;margin-bottom:4px">= Velocidade de Vendas da Empresa</div>
+          <div style="font-size:38px;font-weight:900;color:var(--primary)">${fmt.money(companySV)}<span style="font-size:16px">/dia</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
+      <div class="card">
+        <div class="card-header"><span class="card-title">Velocidade por Vendedor (R$/dia)</span></div>
+        <div class="card-body"><div class="chart-container"><canvas id="chSVBar"></canvas></div></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><span class="card-title">Tendência de Velocidade (6 meses)</span></div>
+        <div class="card-body"><div class="chart-container"><canvas id="chSVLine"></canvas></div></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header">
+        <span class="card-title">Ranking de Velocidade</span>
+        <button class="btn btn-sm btn-secondary" onclick="exportExcel(${JSON.stringify(svData)}.map(s=>[s.name,s.open_deals,s.conversion+'%',s.avg_ticket,s.avg_days,s.sv,s.svMonthly]),['Vendedor','Deals','Win Rate','Ticket Médio','Ciclo (d)','Vel./Dia','Vel. Mensal Est.'],'velocidade_vendas')">📊 Excel</button>
+      </div>
+      <div class="card-body" style="padding:0">
+        <table>
+          <thead><tr><th>#</th><th>Vendedor</th><th>Deals</th><th>Win Rate</th><th>Ticket Médio</th><th>Ciclo</th><th>Vel./Dia</th><th>Vel. Mensal Est.</th></tr></thead>
+          <tbody>${svData.map((s,i)=>`<tr>
+            <td style="font-size:18px">${i===0?'🏎️':i===1?'🥈':i===2?'🥉':'#'+(i+1)}</td>
+            <td><strong>${s.name}</strong></td>
+            <td>${s.open_deals}</td>
+            <td>${s.conversion}%</td>
+            <td>${fmt.money(s.avg_ticket)}</td>
+            <td>${s.avg_days}d</td>
+            <td style="font-weight:700;color:var(--primary)">${fmt.money(s.sv)}</td>
+            <td style="color:var(--gray-600)">${fmt.money(s.svMonthly)}</td>
+          </tr>`).join('')}
+          <tr style="background:var(--gray-50);font-weight:700">
+            <td colspan="2">EMPRESA TOTAL</td>
+            <td>${totDeals}</td><td>${Math.round(avgWR)}%</td>
+            <td>${fmt.money(Math.round(avgTkt))}</td><td>${Math.round(avgCycle)}d</td>
+            <td style="color:var(--primary)">${fmt.money(companySV)}</td>
+            <td>${fmt.money(companySV*30)}</td>
+          </tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><span class="card-title">💡 Simulador: Como Aumentar a Velocidade</span></div>
+      <div class="card-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px">
+          <div style="padding:16px;background:var(--primary-light);border-radius:10px;border-left:3px solid var(--primary)">
+            <div style="font-weight:700;color:var(--primary-dark);margin-bottom:8px">📈 +20% em Deals</div>
+            <div style="font-size:13px;color:var(--gray-700)">Adicionar <strong>${Math.round(totDeals*0.2)}</strong> deals ao funil elevaria a velocidade para</div>
+            <div style="font-size:22px;font-weight:800;color:var(--primary);margin-top:6px">${fmt.money(Math.round(companySV*1.2))}/dia</div>
+          </div>
+          <div style="padding:16px;background:var(--success-light);border-radius:10px;border-left:3px solid var(--success)">
+            <div style="font-weight:700;color:var(--success);margin-bottom:8px">🎯 +5% Win Rate</div>
+            <div style="font-size:13px;color:var(--gray-700)">Elevar conversão para <strong>${Math.round(avgWR+5)}%</strong> elevaria para</div>
+            <div style="font-size:22px;font-weight:800;color:var(--success);margin-top:6px">${fmt.money(Math.round(companySV*((avgWR+5)/Math.max(1,avgWR))))}/dia</div>
+          </div>
+          <div style="padding:16px;background:var(--warning-light);border-radius:10px;border-left:3px solid var(--warning)">
+            <div style="font-weight:700;color:var(--warning);margin-bottom:8px">⏱️ −5 dias no Ciclo</div>
+            <div style="font-size:13px;color:var(--gray-700)">Ciclo de <strong>${Math.round(avgCycle-5)} dias</strong> elevaria para</div>
+            <div style="font-size:22px;font-weight:800;color:var(--warning);margin-top:6px">${fmt.money(Math.round((totDeals*(avgWR/100)*avgTkt)/Math.max(1,avgCycle-5)))}/dia</div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+  requestAnimationFrame(() => {
+    _mkChart('chSVBar', {
+      type: 'bar',
+      data: { labels: svData.map(s=>s.name), datasets: [{ label:'R$/dia', data: svData.map(s=>s.sv), backgroundColor: CHART_COLORS, borderRadius: 6 }] },
+      options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{ticks:{callback:v=>'R$ '+v.toLocaleString('pt-BR')}}} }
+    });
+    _mkChart('chSVLine', {
+      type: 'line',
+      data: { labels: svTrend.map(m=>m.month), datasets: [{ label:'Velocidade Estimada', data: svTrend.map(m=>m.sv), borderColor:'#4f46e5', backgroundColor:'rgba(79,70,229,0.1)', fill:true, tension:0.4, pointRadius:5 }] },
+      options: { responsive:true, maintainAspectRatio:false, scales:{y:{ticks:{callback:v=>'R$ '+v.toLocaleString('pt-BR')}}}, plugins:{legend:{display:false}} }
+    });
+  });
+}
+
+// ===== 10. WIN/LOSS INTELLIGENCE =====
+async function renderWinLoss() {
+  const el = document.getElementById('relContent');
+  el.innerHTML = skeletonLoading(4);
+
+  const opps    = HOLDPRINT._M.opps;
+  const gained  = opps.filter(o => o.stage === 'ganho');
+  const lost    = opps.filter(o => o.stage === 'perdido');
+  const closed  = gained.length + lost.length;
+  const winRate = closed > 0 ? Math.round(gained.length / closed * 100) : 0;
+  const totalGained = gained.reduce((t,o) => t+o.value, 0);
+  const totalLost   = lost.reduce((t,o)   => t+o.value, 0);
+
+  // Drop-off analysis
+  const stages   = ['prospecção','qualificação','proposta','negociação','fechamento'];
+  const stageCts = stages.map(s => ({ stage:s, count: opps.filter(o=>o.stage===s).length }));
+  const dropOffs = stageCts.map((s,i) => {
+    const next = i < stageCts.length-1 ? stageCts[i+1].count : gained.length;
+    return { ...s, dropOff: Math.max(0, s.count - next) };
+  });
+
+  // Loss reasons
+  const lossMap = {};
+  lost.forEach(o => {
+    const r = o.rejection_reason || 'Não especificado';
+    lossMap[r] = (lossMap[r]||0) + 1;
+  });
+  const lossReasons = Object.entries(lossMap).sort((a,b)=>b[1]-a[1]);
+
+  // Price sensitivity brackets
+  const brackets = [
+    { label:'Até R$ 5k',    min:0,     max:5000 },
+    { label:'R$5k–R$10k',   min:5000,  max:10000 },
+    { label:'R$10k–R$20k',  min:10000, max:20000 },
+    { label:'Acima R$ 20k', min:20000, max:Infinity }
+  ];
+  const bData = brackets.map(b => {
+    const w = gained.filter(o=>o.value>=b.min&&o.value<b.max).length;
+    const l = lost.filter(o=>o.value>=b.min&&o.value<b.max).length;
+    return { ...b, won:w, lost:l, rate:(w+l)>0?Math.round(w/(w+l)*100):0 };
+  });
+  const bestBracket = bData.filter(b=>b.won+b.lost>0).reduce((a,b)=>b.rate>a.rate?b:a, bData[0]);
+  const worstBracket = bData.filter(b=>b.won+b.lost>0).reduce((a,b)=>b.rate<a.rate?b:a, bData[0]);
+
+  // Win/Loss by seller
+  const sellerMap = {};
+  [...gained,...lost].forEach(o => {
+    if (!sellerMap[o.responsible]) sellerMap[o.responsible] = { won:0, lost:0 };
+    o.stage==='ganho' ? sellerMap[o.responsible].won++ : sellerMap[o.responsible].lost++;
+  });
+  const sellerWL = Object.entries(sellerMap).map(([name,d])=>({ name, ...d, total:d.won+d.lost, rate:(d.won+d.lost)>0?Math.round(d.won/(d.won+d.lost)*100):0 })).sort((a,b)=>b.rate-a.rate);
+
+  // Biggest drop-off stage
+  const biggestDrop = dropOffs.reduce((a,b)=>b.dropOff>a.dropOff?b:a, dropOffs[0]);
+
+  el.innerHTML = `
+    <div class="kpi-grid">
+      <div class="kpi-card" style="border-left:4px solid var(--success)">
+        <div class="kpi-icon">🏆</div>
+        <div class="kpi-label">Taxa de Ganho</div>
+        <div class="kpi-value" style="color:var(--success)">${winRate}%</div>
+        <div class="kpi-sub">${gained.length} ganhos · ${closed} fechados</div>
+      </div>
+      <div class="kpi-card" style="border-left:4px solid var(--danger)">
+        <div class="kpi-icon">💸</div>
+        <div class="kpi-label">Valor Perdido</div>
+        <div class="kpi-value" style="color:var(--danger)">${fmt.money(totalLost)}</div>
+        <div class="kpi-sub">${lost.length} deals perdidos</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-icon">📍</div>
+        <div class="kpi-label">Maior Drop-off</div>
+        <div class="kpi-value" style="font-size:16px">${biggestDrop.stage.charAt(0).toUpperCase()+biggestDrop.stage.slice(1)}</div>
+        <div class="kpi-sub">${biggestDrop.dropOff} deals abandonados aqui</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-icon">💡</div>
+        <div class="kpi-label">Melhor Faixa de Preço</div>
+        <div class="kpi-value" style="font-size:15px">${bestBracket?.label||'N/A'}</div>
+        <div class="kpi-sub">${bestBracket?.rate||0}% de conversão</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
+      <div class="card">
+        <div class="card-header"><span class="card-title">Onde os Deals São Perdidos (Drop-off)</span></div>
+        <div class="card-body"><div class="chart-container"><canvas id="chWLDrop"></canvas></div></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><span class="card-title">Conversão por Faixa de Valor</span></div>
+        <div class="card-body"><div class="chart-container"><canvas id="chWLBracket"></canvas></div></div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
+      <div class="card">
+        <div class="card-header"><span class="card-title">Motivos de Perda</span></div>
+        <div class="card-body">
+          ${lossReasons.length === 0
+            ? '<p style="color:var(--gray-400);text-align:center;padding:20px">Nenhuma perda com motivo registrado</p>'
+            : lossReasons.map(([reason,count]) => `
+              <div style="margin-bottom:12px">
+                <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                  <span style="font-size:13px;font-weight:500">${reason}</span>
+                  <span style="font-size:12px;font-weight:700;color:var(--danger)">${count}</span>
+                </div>
+                <div style="background:var(--gray-100);border-radius:4px;height:8px">
+                  <div style="width:${Math.round(count/lost.length*100)}%;background:var(--danger);height:8px;border-radius:4px;transition:width .5s"></div>
+                </div>
+                <div style="font-size:11px;color:var(--gray-400);margin-top:2px">${Math.round(count/lost.length*100)}% das perdas</div>
+              </div>`).join('')}
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Win/Loss por Vendedor</span>
+          <button class="btn btn-sm btn-secondary" onclick="exportExcel(${JSON.stringify(sellerWL)}.map(s=>[s.name,s.won,s.lost,s.total,s.rate+'%']),['Vendedor','Ganhos','Perdidos','Total','Taxa'],'winloss_vendedor')">📊 Excel</button>
+        </div>
+        <div class="card-body" style="padding:0">
+          <table>
+            <thead><tr><th>Vendedor</th><th>Ganhos</th><th>Perdidos</th><th>Taxa</th></tr></thead>
+            <tbody>${sellerWL.map(s=>`<tr>
+              <td><strong>${s.name}</strong></td>
+              <td style="color:var(--success);font-weight:600">${s.won}</td>
+              <td style="color:var(--danger)">${s.lost}</td>
+              <td><span class="badge ${s.rate>=70?'badge-fechado':s.rate>=50?'badge-proposta':'badge-perdido'}">${s.rate}%</span></td>
+            </tr>`).join('')}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><span class="card-title">🤖 Padrões Detectados Automaticamente</span></div>
+      <div class="card-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px">
+          <div style="padding:16px;background:var(--danger-light);border-radius:10px;border-left:3px solid var(--danger)">
+            <div style="font-size:18px;margin-bottom:8px">📉</div>
+            <div style="font-weight:700;font-size:13px;margin-bottom:6px">Ponto de Abandono</div>
+            <div style="font-size:12px;line-height:1.6;color:var(--gray-700)">A maioria dos deals abandona em <strong>"${biggestDrop.stage}"</strong> (${biggestDrop.dropOff} deals). Foque em melhorar a qualidade das propostas nesta etapa.</div>
+          </div>
+          <div style="padding:16px;background:var(--warning-light);border-radius:10px;border-left:3px solid var(--warning)">
+            <div style="font-size:18px;margin-bottom:8px">💰</div>
+            <div style="font-weight:700;font-size:13px;margin-bottom:6px">Sensibilidade ao Preço</div>
+            <div style="font-size:12px;line-height:1.6;color:var(--gray-700)">Faixa <strong>${worstBracket?.label||''}</strong> tem a menor conversão (${worstBracket?.rate||0}%). Revise a estratégia de precificação para este segmento.</div>
+          </div>
+          <div style="padding:16px;background:var(--success-light);border-radius:10px;border-left:3px solid var(--success)">
+            <div style="font-size:18px;margin-bottom:8px">✅</div>
+            <div style="font-weight:700;font-size:13px;margin-bottom:6px">Melhor Desempenho</div>
+            <div style="font-size:12px;line-height:1.6;color:var(--gray-700)"><strong>${sellerWL[0]?.name}</strong> lidera com ${sellerWL[0]?.rate}% de taxa de ganho. Documente e replique as práticas deste vendedor.</div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+  requestAnimationFrame(() => {
+    _mkChart('chWLDrop', {
+      type: 'bar',
+      data: {
+        labels: dropOffs.map(s=>s.stage.charAt(0).toUpperCase()+s.stage.slice(1)),
+        datasets: [
+          { label:'Deals na Etapa', data: dropOffs.map(s=>s.count), backgroundColor:'rgba(37,99,235,0.75)', borderRadius:4 },
+          { label:'Drop-off',       data: dropOffs.map(s=>s.dropOff), backgroundColor:'rgba(239,68,68,0.75)', borderRadius:4 }
+        ]
+      },
+      options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'top'}}, scales:{y:{beginAtZero:true}} }
+    });
+    _mkChart('chWLBracket', {
+      type: 'bar',
+      data: {
+        labels: bData.map(b=>b.label),
+        datasets: [
+          { label:'Ganhos',  data: bData.map(b=>b.won),  backgroundColor:'rgba(16,185,129,0.8)',  borderRadius:4 },
+          { label:'Perdidos',data: bData.map(b=>b.lost), backgroundColor:'rgba(239,68,68,0.75)', borderRadius:4 }
+        ]
+      },
+      options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'top'}}, scales:{y:{beginAtZero:true,ticks:{stepSize:1}}} }
+    });
+  });
+}
+
+// ===== 11. SAÚDE DO PIPELINE =====
+async function renderSaude() {
+  const el = document.getElementById('relContent');
+  el.innerHTML = skeletonLoading(4);
+
+  const opps    = HOLDPRINT._M.opps;
+  const active  = opps.filter(o => !['ganho','perdido'].includes(o.stage));
+  const rev     = HOLDPRINT._M.revenue.monthly;
+  const sellers = HOLDPRINT._M.sellers;
+  const now     = new Date();
+
+  // 1. Coverage Ratio — 30 pts
+  const totalPipe   = active.reduce((t,o)=>t+o.value,0);
+  const avgMeta     = rev.reduce((t,m)=>t+(m.meta||0),0) / Math.max(1,rev.length);
+  const metaAnual   = avgMeta * 12;
+  const coverage    = metaAnual > 0 ? totalPipe / metaAnual : 0;
+  const scoreCovrg  = Math.min(30, Math.round(Math.min(coverage/3,1)*30));
+
+  // 2. Activity Score — 25 pts
+  const recActive   = active.filter(o=>Math.floor((now-new Date(o.last_activity))/86400000)<=7);
+  const actRate     = active.length > 0 ? recActive.length/active.length : 0;
+  const scoreActiv  = Math.round(actRate * 25);
+
+  // 3. Stage Balance — 25 pts
+  const stages    = ['prospecção','qualificação','proposta','negociação','fechamento'];
+  const stageCts  = stages.map(s=>active.filter(o=>o.stage===s).length);
+  let balanced = 0;
+  for (let i=1;i<stageCts.length;i++) { if (stageCts[i]<=stageCts[i-1]) balanced++; }
+  const scoreBalance = Math.round((balanced/(stages.length-1))*25);
+
+  // 4. Win Rate — 20 pts
+  const avgWR    = sellers.reduce((t,s)=>t+s.conversion,0)/sellers.length;
+  const scoreWR  = Math.min(20, Math.round((avgWR/100)*20));
+
+  const total = scoreCovrg + scoreActiv + scoreBalance + scoreWR;
+  const grade = total>=90?'A':total>=75?'B':total>=60?'C':'D';
+  const gc    = grade==='A'?'var(--success)':grade==='B'?'var(--info)':grade==='C'?'var(--warning)':'var(--danger)';
+  const gTxt  = grade==='A'?'Pipeline Excelente':grade==='B'?'Pipeline Saudável':grade==='C'?'Pipeline Moderado':'Pipeline em Risco';
+
+  const sellerHealth = sellers.map(s => {
+    const sd    = active.filter(o=>o.responsible===s.name);
+    const stale = sd.filter(o=>Math.floor((now-new Date(o.last_activity))/86400000)>7).length;
+    const sr    = sd.length>0?Math.round(stale/sd.length*100):0;
+    return { name:s.name, deals:sd.length, stale, sr, level:sr<20?'high':sr<50?'medium':'low' };
+  });
+
+  const critDeals  = active.filter(o=>Math.floor((now-new Date(o.last_activity))/86400000)>14).length;
+  const staleDeals = active.length - recActive.length - critDeals;
+
+  el.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 2fr;gap:20px;margin-bottom:20px">
+      <div class="card">
+        <div class="card-header"><span class="card-title">Score de Saúde</span></div>
+        <div class="card-body" style="text-align:center;padding:36px 24px">
+          <div style="width:130px;height:130px;border-radius:50%;border:10px solid ${gc};display:flex;align-items:center;justify-content:center;margin:0 auto 18px;box-shadow:0 0 36px ${gc}55;transition:all .3s">
+            <div style="font-size:56px;font-weight:900;color:${gc};line-height:1">${grade}</div>
+          </div>
+          <div style="font-size:32px;font-weight:900;color:${gc};margin-bottom:6px">${total}/100</div>
+          <div style="font-size:14px;color:var(--gray-600);font-weight:600">${gTxt}</div>
+          <div style="margin-top:16px;font-size:12px;color:var(--gray-400)">Atualizado em ${new Date().toLocaleDateString('pt-BR')}</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><span class="card-title">Decomposição do Score (4 Dimensões)</span></div>
+        <div class="card-body">
+          ${[
+            { label:'Cobertura do Pipeline', score:scoreCovrg, max:30, icon:'📊', val:`${coverage.toFixed(1)}x`, bench:'3–5×', detail:`${fmt.money(totalPipe)} de pipeline vs meta anual de ${fmt.money(Math.round(metaAnual))}` },
+            { label:'Atividade Recente (<7d)',score:scoreActiv,max:25, icon:'📞', val:`${Math.round(actRate*100)}%`, bench:'>70%', detail:`${recActive.length} de ${active.length} deals com contato recente` },
+            { label:'Equilíbrio do Funil',   score:scoreBalance,max:25,icon:'⚖️', val:`${Math.round(balanced/(stages.length-1)*100)}%`, bench:'>75%', detail:'Funil progressivo do topo ao fechamento' },
+            { label:'Taxa de Conversão',     score:scoreWR,    max:20, icon:'🎯', val:`${Math.round(avgWR)}%`, bench:'>45%', detail:'Win rate médio dos vendedores' }
+          ].map(item => {
+            const pct = Math.round(item.score/item.max*100);
+            const c   = pct>=80?'var(--success)':pct>=60?'var(--warning)':'var(--danger)';
+            return `<div style="margin-bottom:18px">
+              <div style="display:flex;justify-content:space-between;margin-bottom:5px;align-items:center">
+                <span style="font-size:13px;font-weight:600">${item.icon} ${item.label}</span>
+                <span style="font-size:13px;font-weight:800;color:${c}">${item.score}/${item.max} pts</span>
+              </div>
+              <div style="background:var(--gray-100);border-radius:5px;height:11px;margin-bottom:4px">
+                <div style="width:${pct}%;background:${c};height:11px;border-radius:5px;transition:width .5s"></div>
+              </div>
+              <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--gray-400)">
+                <span>${item.detail}</span>
+                <span>Benchmark: ${item.bench}</span>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
+      <div class="card">
+        <div class="card-header"><span class="card-title">Radar de Saúde vs Benchmark</span></div>
+        <div class="card-body"><div class="chart-container"><canvas id="chSaudeRadar"></canvas></div></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><span class="card-title">Status de Atividade dos Deals</span></div>
+        <div class="card-body"><div class="chart-container"><canvas id="chSaudeDist"></canvas></div></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header"><span class="card-title">Saúde por Vendedor</span></div>
+      <div class="card-body" style="padding:0">
+        <table>
+          <thead><tr><th>Vendedor</th><th>Deals Ativos</th><th>Sem Atividade >7d</th><th>% Estagnados</th><th>Nível de Saúde</th></tr></thead>
+          <tbody>${sellerHealth.map(s=>`<tr>
+            <td><strong>${s.name}</strong></td>
+            <td>${s.deals}</td>
+            <td style="color:${s.stale>0?'var(--warning)':'var(--success)'};font-weight:600">${s.stale}</td>
+            <td>${s.sr}%</td>
+            <td><span class="badge ${s.level==='high'?'badge-fechado':s.level==='medium'?'badge-proposta':'badge-perdido'}">${s.level==='high'?'✅ Alta':s.level==='medium'?'⚠️ Média':'🔴 Baixa'}</span></td>
+          </tr>`).join('')}</tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><span class="card-title">📋 Plano de Ação para Melhorar a Saúde</span></div>
+      <div class="card-body">
+        <div style="display:grid;gap:10px">
+          ${[
+            scoreCovrg < 20 ? `🔴 <strong>Cobertura insuficiente:</strong> adicione pelo menos ${fmt.money(Math.max(0,Math.round(metaAnual*3-totalPipe)))} em novos deals para atingir cobertura 3× da meta anual.` : null,
+            scoreActiv < 15 ? `🟠 <strong>${active.length-recActive.length} deals sem atividade recente.</strong> Divida entre os vendedores e execute follow-ups esta semana.` : null,
+            scoreBalance < 15 ? `🟡 <strong>Funil desequilibrado:</strong> concentre esforços em prospecção para reabastecer o topo do funil.` : null,
+            scoreWR < 12 ? `🔵 <strong>Win rate abaixo do benchmark:</strong> revise o processo de qualificação para entrar apenas em deals com real potencial de fechamento.` : null,
+            total >= 75 ? `✅ <strong>Pipeline com score ${total}/100 (${grade}).</strong> Mantenha a cadência de prospecção e monitore os ${active.length-recActive.length} deals sem atividade recente.` : null
+          ].filter(Boolean).map(r=>`
+            <div style="display:flex;gap:12px;padding:13px 16px;background:var(--gray-50);border-radius:8px;border:1px solid var(--gray-200);font-size:13px;line-height:1.6">
+              ${r}
+            </div>`).join('')}
+        </div>
+      </div>
+    </div>`;
+
+  requestAnimationFrame(() => {
+    _mkChart('chSaudeRadar', {
+      type: 'radar',
+      data: {
+        labels: ['Cobertura','Atividade','Equilíbrio','Conversão'],
+        datasets: [
+          { label:'Score Atual', data:[Math.round(scoreCovrg/30*100),Math.round(scoreActiv/25*100),Math.round(scoreBalance/25*100),Math.round(scoreWR/20*100)], borderColor:gc, backgroundColor:gc+'33', pointRadius:5, borderWidth:2 },
+          { label:'Benchmark',  data:[75,70,75,60], borderColor:'#9ca3af', backgroundColor:'rgba(156,163,175,0.1)', borderDash:[5,3], pointRadius:3, borderWidth:1.5 }
+        ]
+      },
+      options: { responsive:true, maintainAspectRatio:false, scales:{r:{min:0,max:100,ticks:{stepSize:25}}}, plugins:{legend:{position:'bottom'}} }
+    });
+    _mkChart('chSaudeDist', {
+      type: 'doughnut',
+      data: {
+        labels: ['Com Atividade Recente','Inativo 7–14 dias','Crítico >14 dias'],
+        datasets: [{ data:[recActive.length, staleDeals, critDeals], backgroundColor:['#10b981','#f59e0b','#ef4444'], borderWidth:2 }]
+      },
+      options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'bottom'}} }
+    });
   });
 }
