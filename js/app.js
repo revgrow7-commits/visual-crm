@@ -64,8 +64,18 @@ function renderPage(page) {
 // ===== DASHBOARD =====
 function renderDashboard(area) {
   const s = DB.getStats();
+  const rd = HOLDPRINT._realData; // real data if synced
   const leads = DB.getLeads().filter(l => l.status !== 'fechado' && l.status !== 'perdido').slice(0, 5);
   const orcamentos = DB.getOrcamentos().sort((a,b) => b.criadoEm?.localeCompare(a.criadoEm||'')).slice(0, 5);
+
+  // Enrich KPIs with real Holdprint data when available
+  const kpiClientes   = rd ? rd.totalCustomers  : s.totalClientes;
+  const kpiOrc        = rd ? rd.totalBudgets     : s.totalOrcamentos;
+  const kpiConversao  = rd ? rd.conversionRate   : s.taxaConversao;
+  const kpiPipeline   = rd ? rd.openValue        : s.valorOrcamentos;
+  const kpiWon        = rd ? rd.wonBudgets.length: s.fechados;
+  const kpiTotal      = rd ? rd.totalBudgets     : s.totalLeads;
+  const kpiSource     = rd ? ' <span style="font-size:9px;background:#dbeafe;color:#1d4ed8;padding:1px 5px;border-radius:3px;vertical-align:middle">ERP</span>' : '';
 
   area.innerHTML = `
     <div class="kpi-grid">
@@ -77,15 +87,15 @@ function renderDashboard(area) {
       </div>
       <div class="kpi-card" onclick="navigate('clientes')" style="cursor:pointer">
         <div class="kpi-icon" style="background:#e0f2fe">👥</div>
-        <div class="kpi-label">Clientes</div>
-        <div class="kpi-value">${s.totalClientes}</div>
-        <div class="kpi-sub">${s.fechados} conversões no período</div>
+        <div class="kpi-label">Clientes${kpiSource}</div>
+        <div class="kpi-value">${kpiClientes}</div>
+        <div class="kpi-sub">${kpiWon} conversões no período</div>
       </div>
       <div class="kpi-card" onclick="navigate('orcamentos')" style="cursor:pointer">
         <div class="kpi-icon" style="background:#fef9c3">📋</div>
-        <div class="kpi-label">Orçamentos</div>
-        <div class="kpi-value">${s.totalOrcamentos}</div>
-        <div class="kpi-sub">${fmt.money(s.valorOrcamentos)} em aberto</div>
+        <div class="kpi-label">Orçamentos${kpiSource}</div>
+        <div class="kpi-value">${kpiOrc}</div>
+        <div class="kpi-sub">${fmt.money(kpiPipeline)} em aberto</div>
       </div>
       <div class="kpi-card" onclick="navigate('propostas')" style="cursor:pointer">
         <div class="kpi-icon" style="background:var(--violet-light)">📤</div>
@@ -95,9 +105,9 @@ function renderDashboard(area) {
       </div>
       <div class="kpi-card">
         <div class="kpi-icon" style="background:var(--success-light)">📈</div>
-        <div class="kpi-label">Taxa de Conversão</div>
-        <div class="kpi-value" style="color:${s.taxaConversao>=30?'var(--success)':s.taxaConversao>=15?'var(--warning)':'var(--danger)'}">${s.taxaConversao}%</div>
-        <div class="kpi-sub">${s.fechados} fechados / ${s.totalLeads} total</div>
+        <div class="kpi-label">Taxa de Conversão${kpiSource}</div>
+        <div class="kpi-value" style="color:${kpiConversao>=30?'var(--success)':kpiConversao>=15?'var(--warning)':'var(--danger)'}">${kpiConversao}%</div>
+        <div class="kpi-sub">${kpiWon} fechados / ${kpiTotal} total</div>
       </div>
     </div>
     <div class="dashboard-grid">
@@ -950,6 +960,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
   navigate('dashboard');
 
-  // Probe real Holdprint API to update status indicator
-  if (Auth.isAuthenticated()) HOLDPRINT.probe();
+  // Probe + full data sync from real Holdprint API
+  if (Auth.isAuthenticated()) {
+    HOLDPRINT.probe();
+    HOLDPRINT.syncRealData().then(() => {
+      // Refresh current page with real data if it's dashboard or relatorios
+      if (currentPage === 'dashboard' || currentPage === 'relatorios') {
+        renderPage(currentPage);
+      }
+    });
+  }
 });

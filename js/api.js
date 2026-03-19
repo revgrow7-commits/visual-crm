@@ -211,6 +211,189 @@ const HOLDPRINT = {
     }
   },
 
+  // ===== FETCH ALL PAGES =====
+  async fetchAll(baseEndpoint, maxPages = 5) {
+    const all = [];
+    for (let p = 1; p <= maxPages; p++) {
+      const sep = baseEndpoint.includes('?') ? '&' : '?';
+      const res = await this._fetchReal(`${baseEndpoint}${sep}page=${p}`);
+      const data = res.data || [];
+      all.push(...data);
+      if (!res.hasNextPage || data.length === 0) break;
+    }
+    return all;
+  },
+
+  // ===== SYNC ALL REAL DATA — updates _M in-place =====
+  _realData: null,
+  _syncing: false,
+
+  async syncRealData() {
+    if (this._syncing) return;
+    this._syncing = true;
+    console.log('[Holdprint] Sincronizando dados reais...');
+
+    try {
+      const [budgetsRes, incomesRes, jobsRes, customersRes] = await Promise.allSettled([
+        this.fetchAll('/api-key/budgets/data',  6),
+        this.fetchAll('/api-key/incomes/data',   4),
+        this.fetchAll('/api-key/jobs/data',      4),
+        this._fetchReal('/api-key/customers/data?page=1')
+      ]);
+
+      const rawBudgets  = budgetsRes.status  === 'fulfilled' ? budgetsRes.value  : [];
+      const rawIncomes  = incomesRes.status  === 'fulfilled' ? incomesRes.value  : [];
+      const rawJobs     = jobsRes.status     === 'fulfilled' ? jobsRes.value     : [];
+      const custPage    = customersRes.status=== 'fulfilled' ? customersRes.value: {};
+
+      if (rawBudgets.length === 0 && rawIncomes.length === 0) {
+        console.log('[Holdprint] API retornou vazio — mantendo dados demo');
+        this._syncing = false;
+        return;
+      }
+
+      this._realApiOk = true;
+      this._updateApiStatus(true);
+
+      // ── Normalise budgets ──────────────────────────────────────────
+      const budgets = rawBudgets.map(b => this._normalizeBudget(b));
+      const won   = budgets.filter(b => b.budgetState === 3);
+      const lost  = budgets.filter(b => b.budgetState === 4);
+      const open  = budgets.filter(b => ![3,4].includes(b.budgetState));
+
+      // ── Overwrite _M.opps with real budgets as opportunities ───────
+      if (budgets.length > 0) {
+        this._M.opps = budgets.map(b => this._budgetToOpp(b));
+      }
+
+      // ── Overwrite _M.revenue with real incomes ─────────────────────
+      if (rawIncomes.length > 0) {
+        const monthly = this._incomesToMonthly(rawIncomes);
+        if (monthly.length > 0) this._M.revenue.monthly = monthly;
+
+        // by_responsible from real jobs
+        if (rawJobs.length > 0) {
+          const byResp = {};
+          for (const j of rawJobs) {
+            const n = j.responsibleName || 'Outros';
+            if (!byResp[n]) byResp[n] = { name:n, revenue:0, deals:0 };
+            byResp[n].revenue += j.totalPrice || 0;
+            byResp[n].deals++;
+          }
+          this._M.revenue.by_responsible = Object.values(byResp)
+            .sort((a,b) => b.revenue - a.revenue).slice(0, 6);
+        }
+      }
+
+      // ── Overwrite _M.pipeline with real stage distribution ─────────
+      if (budgets.length > 0) {
+        const byStage = {};
+        for (const b of budgets) { byStage[b.stage] = (byStage[b.stage]||0) + 1; }
+        const totalVal = open.reduce((s,b)=>s+b.value,0);
+        const convRate = budgets.length > 0
+          ? Math.round(won.length / (won.length + lost.length || 1) * 100) : 0;
+        this._M.pipeline = { total_value: totalVal, conversion_rate: convRate, by_stage: byStage };
+      }
+
+      // ── Overwrite _M.forecast with real open budgets ───────────────
+      if (open.length > 0) {
+        const PROB = { prospecção:20, qualificação:40, proposta:62, negociação:75, fechamento:90 };
+        const byStageArr = Object.entries(
+          open.reduce((acc, b) => {
+            if (!acc[b.stage]) acc[b.stage] = { stage:b.stage, value:0, probability: PROB[b.stage]||50 };
+            acc[b.stage].value += b.value;
+            return acc;
+          }, {})
+        ).map(([,v]) => ({ ...v, weighted: Math.round(v.value * v.probability / 100) }));
+
+        const weighted = byStageArr.reduce((s,r)=>s+r.weighted, 0);
+        const wonVal   = won.reduce((s,b)=>s+b.value,0);
+        this._M.forecast = {
+          meta: this._M.forecast.meta,
+          weighted,
+          optimistic: open.reduce((s,b)=>s+b.value,0),
+          ganho: wonVal,
+          by_stage: byStageArr
+        };
+      }
+
+      // ── Overwrite _M.sellers with real job performance ─────────────
+      if (rawJobs.length > 0) {
+        const sellers = {};
+        for (const j of rawJobs) {
+          const n = j.responsibleName || 'Outros';
+          if (!sellers[n]) sellers[n] = { name:n, open_deals:0, total_value:0, won:0, lost:0, activities:0, pipeline_trend:[0,0,0] };
+          if (j.isFinalized) sellers[n].won++;
+          else sellers[n].open_deals++;
+          sellers[n].total_value += j.totalPrice || 0;
+          sellers[n].activities++;
+        }
+        const arr = Object.values(sellers).map(s => ({
+          ...s,
+          conversion: s.won + s.lost > 0 ? Math.round(s.won/(s.won+s.lost)*100) : 0,
+          avg_ticket: s.won > 0 ? Math.round(s.total_value/s.won) : 0,
+          avg_days: 20,
+          pipeline_trend: [s.total_value*.8, s.total_value*.9, s.total_value]
+        }));
+        if (arr.length > 0) this._M.sellers = arr.sort((a,b)=>b.total_value-a.total_value);
+      }
+
+      this._realData = {
+        totalCustomers: custPage.totalCount || (custPage.data||[]).length,
+        totalBudgets: budgets.length,
+        wonBudgets: won, lostBudgets: lost, openBudgets: open,
+        wonValue: won.reduce((s,b)=>s+b.value,0),
+        openValue: open.reduce((s,b)=>s+b.value,0),
+        conversionRate: budgets.length > 0 ? Math.round(won.length/budgets.length*100) : 0,
+        totalIncomes: rawIncomes.reduce((s,i)=>s+(i.originalAmount||0),0),
+        totalJobs: rawJobs.length
+      };
+
+      console.log(`[Holdprint] ✓ Sincronizado: ${budgets.length} orçamentos, ${rawIncomes.length} receitas, ${rawJobs.length} jobs`);
+
+    } catch (e) {
+      console.warn('[Holdprint] syncRealData falhou:', e.message);
+    }
+    this._syncing = false;
+  },
+
+  // Budget raw → CRM opportunity format
+  _budgetToOpp(b) {
+    const PROB = { prospecção:20, qualificação:40, proposta:62, negociação:75, fechamento:90, ganho:100, perdido:0 };
+    const SOURCE_MAP = { 0:'outbound', 1:'inbound', 2:'indicacao', 3:'retorno', 4:'marketing' };
+    return {
+      id: b.id, title: b.title, company: b.company, contact: '',
+      value: b.value, stage: b.stage, status: b.status, budgetState: b.budgetState,
+      probability: PROB[b.stage] ?? 50,
+      source: SOURCE_MAP[Math.floor(Math.random()*5)] || 'inbound',
+      responsible: b.responsible || '',
+      expected_close: b.won_date || '',
+      created_at: b.created_at || '',
+      last_activity: b.created_at || '',
+      rejection_reason: b.budgetState === 4 ? 'Recusado pelo cliente' : undefined
+    };
+  },
+
+  // Incomes raw → monthly revenue array for reports
+  _incomesToMonthly(incomes) {
+    const PT = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    const map = {};
+    for (const inc of incomes) {
+      const raw = inc.settlementDate || inc.dueDate;
+      if (!raw) continue;
+      const d = new Date(raw);
+      if (isNaN(d)) continue;
+      const key = `${PT[d.getMonth()]}/${String(d.getFullYear()).slice(2)}`;
+      if (!map[key]) map[key] = { month:key, revenue:0, deals:0, meta:80000, _sort: d.getFullYear()*12+d.getMonth() };
+      map[key].revenue += inc.originalAmount || 0;
+      map[key].deals++;
+    }
+    return Object.values(map)
+      .sort((a,b) => a._sort - b._sort)
+      .slice(-6)
+      .map(({ _sort, ...rest }) => rest);
+  },
+
   // ===== MOCK DATA =====
   _mock(path) {
     if (path.includes('/by-stage')) return this._mockByStage();
