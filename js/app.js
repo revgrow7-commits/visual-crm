@@ -46,7 +46,7 @@ function navigate(page) {
   document.querySelectorAll('.nav-item').forEach(n => {
     n.classList.toggle('active', n.dataset.page === page);
   });
-  const titles = { dashboard: 'Dashboard', leads: 'Leads & Prospects', clientes: 'Clientes', orcamentos: 'Orçamentos', propostas: 'Propostas', pipeline: 'Pipeline', relatorios: 'Relatórios' };
+  const titles = { dashboard: 'Dashboard', leads: 'Leads & Prospects', clientes: 'Clientes', orcamentos: 'Orçamentos', propostas: 'Propostas', pipeline: 'Pipeline', jobs: 'Jobs de Produção', relatorios: 'Relatórios' };
   document.getElementById('pageTitle').textContent = titles[page] || page;
   const btnLabels = { leads: 'Novo Lead', clientes: 'Novo Cliente', orcamentos: 'Novo Orçamento' };
   const btn = document.getElementById('btnAddNew');
@@ -57,7 +57,7 @@ function navigate(page) {
 
 function renderPage(page) {
   const area = document.getElementById('contentArea');
-  const renders = { dashboard: renderDashboard, leads: renderLeads, clientes: renderClientes, orcamentos: renderOrcamentos, propostas: renderPropostas, pipeline: renderPipeline, relatorios: renderRelatorios };
+  const renders = { dashboard: renderDashboard, leads: renderLeads, clientes: renderClientes, orcamentos: renderOrcamentos, propostas: renderPropostas, pipeline: renderPipeline, jobs: renderJobs, relatorios: renderRelatorios };
   if (renders[page]) renders[page](area);
 }
 
@@ -897,6 +897,11 @@ function _renderPipelineBoard(area, leads, hpBudgets) {
           </div>`;
       }).join('')}
     </div>`;
+}
+
+// ===== JOBS → delegado para jobs.js =====
+function renderJobs(area) {
+  if (window.JobsModule) window.JobsModule.render(area);
 }
 
 // ===== RELATÓRIOS → delegado para relatorios.js =====
